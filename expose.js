@@ -3,10 +3,14 @@
 var expose, lib = {}, instances = {};
 
 function load(deps, callback, step) {
-	var dep = deps.shift(), clas;
+	var dep = deps.shift(), clas, k;
 	expose = {};
 	load.js(dep, function() {
-		!isEmpty(expose) && (clas = def(dep));
+		for (k in expose)
+			if (expose.hasOwnProperty(k)) {
+				clas = def(dep);
+				break;
+			}
 		step && step.call(null, dep, clas);
 		deps.length ? load(deps, callback, step) : callback && callback();
 	});
@@ -152,22 +156,4 @@ function inherit() {
 
 function include() {
 	expose.include = (expose.include || []).concat(Array.prototype.slice.call(arguments));
-}
-
-function extend(obj) {
-	for (var i=1, len=arguments.length, k; i < len; i++)
-		for (k in arguments[i])
-			obj[k] = arguments[i][k];
-	return obj;
-}
-
-function isEmpty(obj) {
-	if (obj == null || obj.length === 0)
-		return true;
-	else if (obj.length > 0)
-		return false;
-	for (var key in obj)
-		if (obj.hasOwnProperty(key))
-			return false;
-	return true;
 }
