@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+<title></title>
+<style>
+.slide img {vertical-align:top;}
+.slide div {overflow:hidden; width:300px; height:200px; white-space:nowrap;}
+</style>
+</head>
+<body>
+
+<div class="bar"></div>
+<div class="foo"></div>
+
+<div class="slide"></div>
+<div class="bar"></div>
+<div class="video"></div>
+<div class="slide"></div>
+
+<div class="zoom"></div>
+<div class="erro"></div>
+
+<div class="tpl" style="display:none">
+	<h4>Template inline</h4>
+	<p>{{name}}</p>
+</div>
+
+<script src="../expose.js"></script>
+<script src="http://jsuol.com/c/mustache/mustache.0.8.1.min.js"></script>
+<script>
+
+def('zoom', function() {
+	expose.init = function() {
+		this.dom.innerHTML = '' +
+			'<h3>LIB ZOOM</h3>' +
+			'<img src="http://h.imguol.com/1501/27tsunami-z.jpg"/>';
+	};
+});
+
+def('erro', function() {
+	function name() {
+		return 'Reportar erro';
+	}
+	
+	expose = {
+		template: '.tpl',
+		init: function() {
+			this.name = name();
+			this.mount();
+		}
+	};
+});
+
+// #foreach ($file in $files)
+//    def($file, function() {
+//       #parse($file)
+//    });
+// #end
+
+</script>
+<script>
+
+load(['bar', 'http://jsuol.com/c/jquery/jquery', 'foo', 'slide', 'video'], render);
+
+</script>
+</body>
+</html>
