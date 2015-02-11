@@ -75,6 +75,11 @@ function create(proto) {
 		
 		instances[F.nam].push(this);
 		
+		// set default properties
+		for (var k in proto)
+			if (typeof proto[k] != 'function')
+				this[k] = clone(proto[k]);
+		
 		this.dom = dom;
 		
 		this.mount = function() {
@@ -130,6 +135,16 @@ function create(proto) {
 	}
 	F.prototype = proto;
 	return F;
+}
+
+function clone(obj) {
+	if (obj == null || typeof obj != 'object')
+		return obj;
+	var tmp = obj.constructor();
+	for (var key in obj)
+		if (obj.hasOwnProperty(key))
+			tmp[key] = clone(obj[key]);
+	return tmp;
 }
 
 function def(name, func) {
