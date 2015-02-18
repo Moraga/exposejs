@@ -34,7 +34,7 @@
 		}
 		
 		// defines the standard callback
-		if (typeof window[name] != 'function')
+		if (!window[name] || window[name].constructor.name != 'Function')
 			window[name] = function(data) {
 				queue[name][0][1](data);
 				queue[name].shift();
