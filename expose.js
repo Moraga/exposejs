@@ -23,7 +23,8 @@ load.js = function(src, callback) {
 	}
 	var head = document.getElementsByTagName('head')[0] || document.documentElement,
 		base = document.getElementsByTagName('base')[0],
-		node = document.createElement('script');
+		node = document.createElement('script'),
+		exts = src.match(/\.([a-z0-9]{2,4})(\?|$)/);
 	node.type = 'text/javascript';
 	node.async = true;
 	node.onload = node.onreadystatechange = function() {
@@ -33,7 +34,7 @@ load.js = function(src, callback) {
 			callback && callback();
 		}
 	};
-	node.src = src + '.js';
+	node.src = exts && exts[1] != 'min' ? src : src + '.js';
 	base ? head.insertBefore(node, base) : head.appendChild(node);
 };
 
