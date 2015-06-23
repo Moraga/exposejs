@@ -16,8 +16,8 @@ function def(name, deps, setf) {
 				if (!(k in F.prototype))
 					F.prototype[k] = def.prototype[k];
 			// constructor
-			F.selector = 'selector' in expose ? expose[selector] : '.' + name;
-			F.template = 'template' in expose ? expose[template] : false;
+			F.selector = 'selector' in expose ? expose.selector : '.' + name;
+			F.template = 'template' in expose ? expose.template : false;
 			F.inherit = expose.inherit || [];
 			F.include = expose.include || [];
 			lib[name] = F;
