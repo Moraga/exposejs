@@ -2,64 +2,164 @@
 
 var expose, lib = {}, instances = {};
 
-function load(deps, callback, step) {
-	var dep = deps.shift(), clas, k;
-	expose = {};
-	load.js(dep, function() {
-		for (k in expose)
-			if (expose.hasOwnProperty(k)) {
-				clas = def(dep);
-				break;
+function def(name, deps, setf) {
+	function make() {
+		setf && setf.apply(null, deps.map(function(item) {return lib[item]}), expose = {});
+		// class definition
+		if ('init' in expose) {
+			function F() {
+				def.init.apply(this, [F].concat(Array.prototype.slice.call(arguments, 0)));
 			}
-		step && step.call(null, dep, clas);
-		deps.length ? load(deps, callback, step) : callback && callback();
-	});
+			// inheritance
+			F.prototype = expose;
+			for (var k in def.prototype)
+				if (!(k in F.prototype))
+					F.prototype[k] = def.prototype[k];
+			// constructor
+			F.selector = 'selector' in expose ? expose[selector] : '.' + name;
+			F.template = 'template' in expose ? expose[template] : false;
+			F.inherit = expose.inherit || [];
+			F.include = expose.include || [];
+			lib[name] = F;
+			// registering
+			instances[name] = [];
+		}
+		else if (Object.keys(expose).length) {
+			expose.inherit = expose.inherit || [];
+			expose.include = expose.include || [];
+			lib[name] = expose;
+		}
+	}
+	
+	deps && deps.constructor == Array
+		? load(deps.slice(0), make, null, true)
+		: make(setf = deps, deps = []);
 }
 
-load.js = function(src, callback) {
-	if (src in lib) {
-		expose = lib[src].prototype;
-		return callback();
+def.init = function(F, node, back) {
+	todo.call(this,
+		function(done) {
+			F.inherit.length
+				? load.call(this, F.inherit, done, function(name, S) {
+					var dest = F.prototype || F, supr = S.prototype || S, prop;
+					for (prop in supr)
+						if (!(prop in dest))
+							dest[prop] = supr[prop];
+				}, true)
+				: done();
+		},
+		function(done) {
+			F.include.length
+				? load.call(this, F.include, done, function(name, S) {
+					(F.prototype || F)[name] = S;
+				}, true)
+				: done();
+		},
+		function(done) {
+			if (F.template) {
+				var xhr = new XMLHttpRequest;
+				xhr.open('GET', F.template);
+				xhr.onload = function() {
+					F.prototype.template = xhr.responseText;
+					done();
+				};
+				xhr.send();
+			}
+			else {
+				done();
+			}
+		},
+		function(done) {
+			if (F.constructor == Function && this instanceof F) {
+				this.dom = node;
+				'init' in this && this.init();
+			}
+			back && back.call(this);
+			done();
+		}
+	);
+};
+
+def.prototype.mount = function() {
+	this.dom.innerHTML = Mustache.to_html(this.template, this.data || this);
+};
+
+def.prototype.on = function(ev, selector, back) {
+	var items = this.dom.querySelectorAll(selector), self = this, i = 0;
+	for (; i < items.length; i++) {
+		items[i].addEventListener(ev, function(event) {
+			back.call(self, this, event);
+		}, true);
 	}
+};
+
+function inherit() {
+	expose.inherit = (expose.inherit || []).concat(Array.prototype.slice.call(arguments));
+}
+
+function include() {
+	expose.include = (expose.include || []).concat(Array.prototype.slice.call(arguments));
+}
+
+function load(list, back, step, dept) {
+	var item = list.shift();
+	load.js.call(this, item, function(name, code) {
+		step && step.call(this, name, code);
+		list.length
+			? load.call(this, list, back, step, dept)
+			: back && back.apply(this);
+	}, dept);
+}
+
+load.js = function(item, back, dept) {
+	var name = load.js.re.exec(item)[1].replace('min.js', '');
+	if (name in lib)
+		return back.call(this, name, lib[name]);
 	var head = document.getElementsByTagName('head')[0] || document.documentElement,
 		base = document.getElementsByTagName('base')[0],
 		node = document.createElement('script'),
-		exts = src.match(/\.([a-z0-9]{2,4})(\?|$)/);
+		self = this;
 	node.type = 'text/javascript';
 	node.async = true;
+	expose = {};
 	node.onload = node.onreadystatechange = function() {
 		if (!node.readyState || /loaded|complete/.test(node.readyState)) {
 			node.onload = node.onreadystatechange = null;
 			node.parentNode.removeChild(node);
-			callback && callback();
+			// inline
+			if (!lib[item] && Object.keys(expose).length) {
+				def(item);
+			}
+			// dept load
+			if (dept && item in lib) {
+				def.init(lib[item], null, function() {
+					back && back.call(self, item, lib[item]);
+				});
+			}
+			else {
+				back && back.call(self, item, lib[item]);
+			}
 		}
 	};
-	node.src = exts && exts[1] != 'min' ? src : src + '.js';
+	node.src = item + (item.indexOf('.js') == -1 ? '.js' : '');
 	base ? head.insertBefore(node, base) : head.appendChild(node);
 };
 
-load.css = function() {};
+load.js.re = /([^\/?#]+)(?:\?|#|$)/;
 
 function render() {
-	var k, elem, i;
-	for (k in lib) {
-		elem = lib[k].selector ? document.querySelectorAll(lib[k].selector) :
-				(lib[k].initiated ? [] : [null]);
-		if (elem.length) {
-			lib[k].initiated = true;
-			for (i=0; i < elem.length; i++) {
-				if (elem[i]) {
-					if (elem[i].getAttribute('init') == 'true')
-						continue;
-					else
-						elem[i].setAttribute('init', 'true');
-				}
-				else if (!lib[k].init)
-					continue;
-				new lib[k](elem[i]);
+	var name, elem, i, j = 0;
+	for (name in lib) {
+		elem = lib[name].selector ? document.querySelectorAll(lib[name].selector) : [];
+		for (i = 0; i < elem.length; i++) {
+			if (elem[i].getAttribute('initiated') != 'true') {
+				elem[i].setAttribute('initiated', 'true');
+				new lib[name](elem[i]);
+				j++;
 			}
 		}
 	}
+	return j;
 }
 
 function todo() {
@@ -68,108 +168,4 @@ function todo() {
 		if (tasks.length)
 			todo.apply(scope, tasks);
 	});
-}
-
-function create(proto) {
-	function F(dom) {
-		var self = this;
-		
-		instances[F.nam].push(this);
-		
-		// set default properties
-		for (var k in proto)
-			if (typeof proto[k] != 'function')
-				this[k] = clone(proto[k]);
-		
-		this.dom = dom;
-		
-		this.mount = function() {
-			this.dom.innerHTML = Mustache.to_html(this.template, this.data || this);
-		};
-		
-		todo.call(this,
-			function(done) {
-				this.inherit ?
-					load(this.inherit.slice(0), done, function(name, clas) {
-						for (var k in clas.prototype)
-							if (typeof self[k] == 'undefined')
-								self[k] = clas.prototype[k];
-					}) : done();
-			},
-			function(done) {
-				this.include ?
-					load(this.include.slice(0), done, function(name, clas) {
-						self[name] = new clas;
-					}) : done();
-			},
-			function(done) {
-				if (this.template && !F.template) {
-					var node;
-					if (this.template.match(/.\..{2,4}$/)) {
-						var xhr = new XMLHttpRequest;
-						xhr.open('GET', this.template);
-						xhr.onload = function() {
-							F.template = xhr.responseText;
-							done();
-						};
-						xhr.send();
-					}
-					else {
-						try {
-							// /^[.#]?[a-z][a-z0-9-_]+(?:\s*[>]?\s*[.#]?[a-z][a-z0-9-_]+)+$/
-							node = document.querySelector(this.template);
-						} catch (e) {}
-						F.template = node ? node.innerHTML : this.template;
-						done();
-					}
-				}
-				else {
-					done();
-				}
-			},
-			function(done) {
-				this.template = F.template;
-				if ('init' in this)
-					this.init();
-			}
-		);
-	}
-	F.prototype = proto;
-	return F;
-}
-
-function clone(obj) {
-	if (obj == null || typeof obj != 'object')
-		return obj;
-	var tmp = obj.constructor();
-	for (var key in obj)
-		if (obj.hasOwnProperty(key))
-			tmp[key] = clone(obj[key]);
-	return tmp;
-}
-
-function def(name, func) {
-	var clas;
-	func && func(expose = {});
-	clas = create(expose);
-	clas.nam = name;
-	clas.selector = typeof expose.selector != 'undefined' ? expose.selector : '.' + name;
-	clas.initiated = false;
-	clas.init = !!expose.init;
-	lib[name] = clas;
-	if (!instances[name]) {
-		instances[name] = [];
-		instances[name].apply = function(exec) {
-			for (var i=0; i < instances[name].length; exec.call(instances[name][i++]));
-		};
-	}
-	return clas;
-}
-
-function inherit() {
-	expose.inherit = (expose.inherit || []).concat(Array.prototype.slice.call(arguments));
-}
-
-function include() {
-	expose.include = (expose.include || []).concat(Array.prototype.slice.call(arguments));
 }
