@@ -1,169 +1,460 @@
+/**
+ * Expose
+ * Object design, include, inheritance and js/css loader
+ */
+
 'use strict';
 
-var expose, lib = {}, instances = {};
+/**
+ * Expose definition object
+ * @var {Object}
+ */
+var expose;
 
-function def(name, deps, setf) {
+/**
+ * Libraries loaded
+ * @var {Object}
+ */
+var lib = {};
+
+/**
+ * Instances container
+ * @var {Object}
+ */
+var instances = {};
+
+//
+//  Shortcuts
+//
+var slice = Array.prototype.slice;
+
+/**
+ * Define a expose lib
+ * @param {String} name Lib name
+ * @param {Array} dependencies
+ * @param {Function callback
+ */
+function def(name, dependencies, callback) {
+	// builder function
 	function make() {
-		setf && setf.apply(null, deps.map(function(item) {return lib[item]}), expose = {});
-		// class definition
+		// applies the callback
+		if (callback) {
+			expose = {};
+			callback.apply(null, dependencies.map(function(dependency) {
+				return lib[dependency];
+			}));
+		}
+		
+		// two types of libraries
+		// classes
 		if ('init' in expose) {
+			// class
 			function F() {
-				def.init.apply(this, [F].concat(Array.prototype.slice.call(arguments, 0)));
+				def.init(this, F, slice.call(arguments, 0));
 			}
-			// inheritance
+			
+			// definition
 			F.prototype = expose;
-			for (var k in def.prototype)
-				if (!(k in F.prototype))
-					F.prototype[k] = def.prototype[k];
-			// constructor
+			
+			// appends def prototype (base inheritance)
+			for (var prop in def.prototype) {
+				if (typeof F.prototype[prop] == 'undefined') {
+					F.prototype[prop] = def.prototype[prop];
+				}
+			}
+			
+			// constructor data
 			F.selector = 'selector' in expose ? expose.selector : '.' + name;
 			F.template = 'template' in expose ? expose.template : false;
-			F.inherit = expose.inherit || [];
-			F.include = expose.include || [];
+			F.inherit  = expose.inherit  || [];
+			F.include  = expose.include  || [];
+			F.mode     = 'normal';
+			F.class	   = name;
+			
+			// initialization mode
+			for (var mode in def.mode) {
+				var index = F.include.indexOf(mode);
+				if (index != -1) {
+					F.mode = mode;
+					if ('include' in def.mode[mode]) {
+						F.include[index] = def.mode[mode].include;
+					}
+					else {
+						F.include.splice(index, 1);
+					}
+				}
+			}
+			
+			// registers
 			lib[name] = F;
-			// registering
 			instances[name] = [];
 		}
+		// static objects
 		else if (Object.keys(expose).length) {
 			expose.inherit = expose.inherit || [];
 			expose.include = expose.include || [];
 			lib[name] = expose;
 		}
+		// nothing to do
+		// else {}
 	}
 	
-	deps && deps.constructor == Array
-		? load(deps.slice(0), make, null, true)
-		: make(setf = deps, deps = []);
+	// runs builder after load all dependencies
+	dependencies && dependencies.constructor == Array
+		? load(dependencies.slice(0), make, null, true)
+		: make(callback = dependencies, dependencies = []);
 }
 
-def.init = function(F, node, back) {
-	todo.call(this,
+/**
+ * Initialize expose classes
+ * @param {Function} F Class
+ * @param {mixed} args
+ * @param {Function} callback
+ */
+def.init = function(obj, F, args, callback) {
+	// register pending init
+	++def.done.count;
+	
+	// sync initialization
+	todo(
+		// inheritance
 		function(done) {
-			F.inherit.length
-				? load.call(this, F.inherit, done, function(name, S) {
-					var dest = F.prototype || F, supr = S.prototype || S, prop;
-					for (prop in supr)
-						if (!(prop in dest))
-							dest[prop] = supr[prop];
-				}, true)
-				: done();
+			F.inherit.length ?
+				load(F.inherit, done, function(name, S) {
+					var dest = F.prototype || F;
+					var base = S.prototype || S;
+					for (var prop in base) {
+						if (typeof dest[prop] == 'undefined') {
+							dest[prop] = base[prop];
+						}
+					}
+				}, true) : done();
 		},
+		// includes as composition
 		function(done) {
-			F.include.length
-				? load.call(this, F.include, done, function(name, S) {
+			F.include.length ?
+				load(F.include, done, function(name, S) {
 					(F.prototype || F)[name] = S;
-				}, true)
-				: done();
+				}, true) : done();
 		},
+		// load template
 		function(done) {
 			if (F.template) {
-				var xhr = new XMLHttpRequest;
-				xhr.open('GET', F.template);
-				xhr.onload = function() {
-					F.prototype.template = xhr.responseText;
+				// DOM Element
+				if (F.template.indexOf('\n') == -1) {
+					try {
+						var elem = document.querySelector(F.template);
+						if (elem) {
+							F.prototype.template = elem.innerHTML;
+							F.template = '';
+							done();
+						}
+					} catch (e) {}
+				}
+				// external file
+				if (F.template.match(/^(https?:)?\/+[a-z0-9]|\..{2,4}$/)) {
+					var xhr = new XMLHttpRequest;
+					xhr.open('GET', F.template);
+					xhr.onload = function() {
+						F.prototype.template = xhr.responseText;
+						F.template = '';
+						done();
+					};
+					xhr.send();
+				}
+				// assumes the string
+				else {
+					F.prototype.template = F.template;
+					F.template = '';
 					done();
-				};
-				xhr.send();
+				}
 			}
 			else {
 				done();
 			}
 		},
-		function(done) {
-			if (F.constructor == Function && this instanceof F) {
-				this.dom = node;
-				'init' in this && this.init();
-			}
-			back && back.call(this);
-			done();
+		// initialize
+		function() {
+			// set DOM element
+			if (F.selector)
+				obj.dom = args.shift();
+			
+			// call init by initialization mode
+			if (typeof obj.init == 'function')
+				def.mode[F.mode || 'normal'].init(obj, args);
+			
+			// register to instances
+			instances[F.class].push(obj);
+			
+			// objects loaded (one or set)
+			if (--def.done.count == 0)
+				def.done();
 		}
 	);
-};
+}
 
-def.prototype.mount = function() {
-	this.dom.innerHTML = Mustache.to_html(this.template, this.data || this);
-};
+/**
+ * Class initialization modes
+ * @var {Object}
+ */
+def.mode = {};
 
-def.prototype.on = function(ev, selector, back) {
-	var items = this.dom.querySelectorAll(selector), self = this, i = 0;
-	for (; i < items.length; i++) {
-		items[i].addEventListener(ev, function(event) {
-			back.call(self, this, event);
-		}, true);
+// normal
+def.mode.normal = {
+	init: function(obj, args) {
+		obj.init.apply(obj, args);
 	}
 };
 
+// AngularJS
+def.mode.angular = {
+	include: 'https://ajax.googleapis.com/ajax/libs/angularjs/1.4.5/angular.min.js',
+	// function fired once, override to new function or object
+	module: function() {
+		return angular.module('expose', []);
+	},
+	init: function(obj, args) {
+		var timer = window.setInterval(function() {
+			if (typeof angular != 'undefined') {
+				if (typeof def.mode.angular.module == 'function')
+					def.mode.angular.module = def.mode.angular.module();
+				var controllerName = 'auto-' + Math.random();
+				obj.dom.setAttribute('ng-controller', controllerName);
+				def.mode.angular.module.controller(controllerName, obj.init);
+				// start controller
+				angular.element(obj.dom).ready(function() {
+					angular.bootstrap(obj.dom, [def.mode.angular.module.name]);
+				});
+				timer = window.clearInterval(timer);
+			}
+		}, 50);
+	}
+};
+
+/**
+ * Expose classes prototype
+ * Default properties and methods
+ * @var {Object}
+ */
+def.prototype = {
+	// event attacher (depends jQuery)
+	on: function(event, selector, callback) {
+		var scope = this;
+		if (window === selector) {
+			window.addEventListener(event, function(event) {
+				callback.call(scope, event);
+			});
+		}
+		else {
+			$(this.dom).on(event, selector, function(event) {
+				callback.apply(scope, arguments);
+			});
+		}
+	},
+	
+	// template language (depends Mustache)
+	mount: function() {
+		this.dom.innerHTML = Mustache.to_html(this.template, this.data || this);
+	},
+	
+	// evaluates strings
+	parse: function(content, fail) {
+		try {
+			return JSON.parse(content) || fail;
+		} catch (e) {}
+		return fail;
+	},
+	
+	// json request (depends jQuery)
+	getjson: function(url, success, error) {
+		var scope = this;
+		
+		// current page
+		if (typeof url != 'string')
+			url = '?' + $.param(url);
+		
+		// request object
+		var request = {url: url, data: 'json'};
+		
+		// success callback
+		if (success)
+			request.success = function() {
+				success.apply(scope, arguments);}
+		
+		// error callback
+		if (error)
+			request.error = function() {
+				error.apply(scope, arguments);}
+		
+		return $.ajax(request);
+	}
+};
+
+/**
+ * Trigger expose init end callbacks
+ */
+def.done = function() {
+	for (var i = 0; i < def.done.queue.length;
+		def.done.queue[i++]());
+}
+
+/**
+ * Items pending init
+ * @var {number}
+ */
+def.done.count = 0;
+
+/**
+ * Expose init callback queue
+ * @var {Array}
+ */
+def.done.queue = [];
+
+/**
+ * Expose inherit shortcut definition
+ * @param {...String} libraries
+ */
 function inherit() {
-	expose.inherit = (expose.inherit || []).concat(Array.prototype.slice.call(arguments));
+	expose.inherit = (expose.inherit || []).concat(slice.call(arguments))
 }
 
+/**
+ * Expose include shortcut definition
+ * @param {...String} libraries
+ */
 function include() {
-	expose.include = (expose.include || []).concat(Array.prototype.slice.call(arguments));
+	expose.include = (expose.include || []).concat(slice.call(arguments));
 }
 
-function load(list, back, step, dept) {
+/**
+ * Renderizes DOM Elements and expose classes
+ * @return {Array} New instances
+ */
+function render() {
+	var init = [];
+	
+	for (name in lib) {
+		var elem = lib[name].selector ? document.querySelectorAll(lib[name].selector) : [];
+		for (var i = 0; i < elem.length; ++i) {
+			if (elem[i].getAttribute('initiated') != 'true') {
+				elem[i].setAttribute('initiated', 'true');
+				init.push(new lib[name](elem[i]));
+			}
+		}
+	}
+	
+	// triggers even nothing initialized
+	if (!init.length)
+		def.done();
+	
+	return init;
+}
+
+/**
+ * Add callbacks to render done queue
+ * @parma {Function} callback
+ */
+function ready(callback) {
+	def.done.queue.push(callback);
+}
+
+/**
+ * Javascript and Stylesheet/CSS loader
+ * @param {string} item Filename/URL
+ * @param {Function} callback
+ * @param {Boolean} autoinit Initiate expose lib
+ */
+function load(list, callback, stepback, autoinit) {
 	var item = list.shift();
-	load.js.call(this, item, function(name, code) {
-		step && step.call(this, name, code);
+	load[item.indexOf('.css') != -1 ? 'css' : 'js'].call(this, item, function(name, resource) {
+		stepback && stepback.call(this, name, resource);
 		list.length
-			? load.call(this, list, back, step, dept)
-			: back && back.apply(this);
-	}, dept);
+			// continue loading the list (with a less)
+			? load.call(this, list, callback, stepback, autoinit)
+			// at end
+			: callback && callback.call(this);
+	}, autoinit);
 }
 
-load.js = function(item, back, dept) {
-	var name = load.js.re.exec(item)[1].replace('min.js', '');
-	if (name in lib)
-		return back.call(this, name, lib[name]);
-	var head = document.getElementsByTagName('head')[0] || document.documentElement,
-		base = document.getElementsByTagName('base')[0],
-		node = document.createElement('script'),
-		self = this;
+/** 
+ * Javascript loader
+ * @param {string} item Filename/URL
+ * @param {Function} callback
+ * @param {Boolean} autoinit Initiate expose lib
+ */
+load.js = function(item, callback, autoinit) {
+	var name = item.match(/([^\/?#]+)(?:\?|#|$)/)[1].replace('min.js', '');
+	
+	// already loaded
+	if (name in lib) {
+		return callback.call(this, name, lib[name]);
+	}
+	
+	var head = document.getElementsByTagName('head')[0] || document.documentElement;
+	var base = document.getElementsByTagName('base')[0];
+	var node = document.createElement('script');
+	var scope = this;
+	
 	node.type = 'text/javascript';
 	node.async = true;
+	
+	// prepares expose
 	expose = {};
+	
+	// on script load
 	node.onload = node.onreadystatechange = function() {
+		// fully loaded
 		if (!node.readyState || /loaded|complete/.test(node.readyState)) {
+			// remove event/bubble
 			node.onload = node.onreadystatechange = null;
 			node.parentNode.removeChild(node);
-			// inline
-			if (!lib[item] && Object.keys(expose).length) {
+			
+			// expose pattern
+			if (Object.keys(expose).length) {
 				def(item);
 			}
-			// dept load
-			if (dept && item in lib) {
+			
+			// depth load
+			if (autoinit && item in lib) {
 				def.init(lib[item], null, function() {
-					back && back.call(self, item, lib[item]);
+					callback && callback.call(scope, item, lib[item]);
 				});
 			}
 			else {
-				back && back.call(self, item, lib[item]);
+				callback && callback.call(scope, item, lib[item]);
 			}
 		}
-	};
+	}
+	
 	node.src = item + (item.indexOf('.js') == -1 ? '.js' : '');
 	base ? head.insertBefore(node, base) : head.appendChild(node);
 };
 
-load.js.re = /([^\/?#]+)(?:\?|#|$)/;
+/**
+ * Stylesheets/CSS loader
+ * @param {string} item Filename/URL
+ * @param {Function} callback
+ * @param {Boolean} autoinit Initiate expose lib
+ */
+load.css = function(item, callback) {
+	var head = document.getElementsByTagName('head')[0] || document.documentElement;
+	var node = document.createElement('link');
+	var scope = this;
+	node.rel = 'stylesheet';
+	node.href = item;
+	node.onload = function() {
+		callback && callback.call(scope, item);
+	};
+	head.appendChild(node);
+};
 
-function render() {
-	var name, elem, i, j = 0;
-	for (name in lib) {
-		elem = lib[name].selector ? document.querySelectorAll(lib[name].selector) : [];
-		for (i = 0; i < elem.length; i++) {
-			if (elem[i].getAttribute('initiated') != 'true') {
-				elem[i].setAttribute('initiated', 'true');
-				new lib[name](elem[i]);
-				j++;
-			}
-		}
-	}
-	return j;
-}
-
+/**
+ * Queue fn execution
+ * @param {Function} ...fn
+ */
 function todo() {
-	var tasks = Array.prototype.slice.call(arguments), scope = this;
+	var tasks = slice.call(arguments);
+	var scope = this;
 	tasks.shift().call(scope, function() {
 		if (tasks.length)
 			todo.apply(scope, tasks);
