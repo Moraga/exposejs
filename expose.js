@@ -3,8 +3,6 @@
  * Object design, include, inheritance and js/css loader
  */
 
-'use strict';
-
 /**
  * Expose definition object
  * @var {Object}
@@ -97,6 +95,9 @@ function def(name, dependencies, callback) {
 		}
 		// nothing to do
 		// else {}
+		
+		// erase expose object
+		expose = {};
 	}
 	
 	// runs builder after load all dependencies
@@ -175,20 +176,27 @@ def.init = function(obj, F, args, callback) {
 		},
 		// initialize
 		function() {
-			// set DOM element
-			if (F.selector)
-				obj.dom = args.shift();
+			// init
+			if (args !== false) {
+				// set DOM element
+				if (F.selector)
+					obj.dom = args.shift();
+				
+				// call init by initialization mode
+				if (typeof obj.init == 'function')
+					def.mode[F.mode || 'normal'].init(obj, args);
+				
+				// register to instances
+				instances[F.class].push(obj);
+				
+				// objects loaded (one or set)
+				if (--def.done.count == 0)
+					def.done();
+			}
 			
-			// call init by initialization mode
-			if (typeof obj.init == 'function')
-				def.mode[F.mode || 'normal'].init(obj, args);
-			
-			// register to instances
-			instances[F.class].push(obj);
-			
-			// objects loaded (one or set)
-			if (--def.done.count == 0)
-				def.done();
+			// trigger callback
+			if (typeof callback == 'function')
+				callback();
 		}
 	);
 }
@@ -416,7 +424,7 @@ load.js = function(item, callback, autoinit) {
 			
 			// depth load
 			if (autoinit && item in lib) {
-				def.init(lib[item], null, function() {
+				def.init(lib[item], lib[item], false, function() {
 					callback && callback.call(scope, item, lib[item]);
 				});
 			}
